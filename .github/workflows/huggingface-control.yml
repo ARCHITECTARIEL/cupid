@@ -1,0 +1,69 @@
+name: Hugging Face Control
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Space control action"
+        required: true
+        default: "factory-rebuild"
+        type: choice
+        options:
+          - restart
+          - factory-rebuild
+          - status
+      space_id:
+        description: "Hugging Face Space ID, for example username/space-name. Leave blank to use HF_SPACE_ID secret."
+        required: false
+        type: string
+
+jobs:
+  control-space:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Hugging Face Hub client
+        run: python -m pip install --upgrade huggingface_hub
+
+      - name: Control Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
+          ACTION: ${{ inputs.action }}
+          INPUT_SPACE_ID: ${{ inputs.space_id }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from huggingface_hub import HfApi, restart_space, get_space_runtime, wait_for_space
+
+          token = os.environ.get("HF_TOKEN")
+          repo_id = os.environ.get("INPUT_SPACE_ID") or os.environ.get("HF_SPACE_ID")
+          action = os.environ.get("ACTION", "factory-rebuild")
+
+          if not token:
+              raise SystemExit("Missing GitHub secret HF_TOKEN")
+          if not repo_id:
+              raise SystemExit("Missing HF_SPACE_ID secret or workflow input space_id")
+
+          api = HfApi(token=token)
+          print(f"Target Space: {repo_id}")
+          print(f"Action: {action}")
+
+          if action == "status":
+              runtime = get_space_runtime(repo_id, token=token)
+              print(runtime)
+              sys.exit(0)
+
+          if action == "restart":
+              runtime = restart_space(repo_id, token=token, factory_reboot=False)
+              print("Restart triggered:", runtime)
+          elif action == "factory-rebuild":
+              runtime = restart_space(repo_id, token=token, factory_reboot=True)
+              print("Factory rebuild triggered:", runtime)
+          else:
+              raise SystemExit(f"Unknown action: {action}")
+
+          print("Waiting for Space to finish starting/building...")
+          runtime = wait_for_space(repo_id, token=token, timeout=900, poll_interval=10)
+          print("Final runtime:", runtime)
+          PY
