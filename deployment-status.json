@@ -1,9 +1,9 @@
 {
-  "timestamp": "2026-07-20T03:31:08.331646+00:00",
+  "timestamp": "2026-07-20T03:36:07.162538+00:00",
   "space_id": "OSOCONSULT/getem",
   "action": "sync-and-rebuild",
   "status": "failed",
-  "github_sha": "ce339893587f86731b31046a8ab69dea3853b27e",
+  "github_sha": "33b7203f2e8c6161e9968a694b61600f9f8c3d50",
   "error_type": "RuntimeError",
   "error": "Missing GitHub Actions secret HF_TOKEN",
   "traceback": "Traceback (most recent call last):\n  File \"<stdin>\", line 20, in <module>\nRuntimeError: Missing GitHub Actions secret HF_TOKEN\n"
