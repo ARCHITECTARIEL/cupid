@@ -29,7 +29,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Hugging Face Hub client
         run: python -m pip install --upgrade huggingface_hub
@@ -45,9 +45,10 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import subprocess
           import traceback
           from datetime import datetime, timezone
-          from huggingface_hub import HfApi, restart_space, get_space_runtime, wait_for_space
+          from huggingface_hub import HfApi
 
           token = os.environ.get("HF_TOKEN")
           repo_id = os.environ.get("HF_SPACE_ID", "OSOCONSULT/getem")
@@ -69,9 +70,9 @@ jobs:
               result["authenticated_as"] = identity.get("name") or identity.get("fullname") or "unknown"
 
               if action == "status":
-                  runtime = get_space_runtime(repo_id, token=token)
+                  runtime = api.get_space_runtime(repo_id=repo_id)
                   result["status"] = "checked"
-                  result["runtime_stage"] = runtime.stage
+                  result["runtime_stage"] = str(runtime.stage)
                   result["runtime"] = str(runtime)
               else:
                   if action == "sync-and-rebuild":
@@ -92,13 +93,22 @@ jobs:
                       )
                       result["space_commit"] = getattr(commit, "oid", None) or getattr(commit, "commit_url", None) or str(commit)
 
-                  factory = action in {"sync-and-rebuild", "factory-rebuild"}
-                  runtime = restart_space(repo_id, token=token, factory_reboot=factory)
-                  result["restart_stage"] = runtime.stage
-                  final_runtime = wait_for_space(repo_id, token=token, timeout=900, poll_interval=10)
-                  result["runtime_stage"] = final_runtime.stage
-                  result["runtime"] = str(final_runtime)
-                  result["status"] = "success" if final_runtime.stage == "RUNNING" else "completed_with_error"
+                  restart_cmd = ["hf", "spaces", "restart", repo_id, "--token", token]
+                  if action in {"sync-and-rebuild", "factory-rebuild"}:
+                      restart_cmd.append("--factory-reboot")
+                  restart = subprocess.run(restart_cmd, text=True, capture_output=True, check=True)
+                  result["restart_output"] = (restart.stdout + restart.stderr).strip()
+
+                  wait = subprocess.run(
+                      ["hf", "spaces", "wait", repo_id, "--token", token],
+                      text=True,
+                      capture_output=True,
+                  )
+                  result["wait_output"] = (wait.stdout + wait.stderr).strip()
+                  runtime = api.get_space_runtime(repo_id=repo_id)
+                  result["runtime_stage"] = str(runtime.stage)
+                  result["runtime"] = str(runtime)
+                  result["status"] = "success" if wait.returncode == 0 and str(runtime.stage) == "RUNNING" else "completed_with_error"
 
           except Exception as exc:
               result["status"] = "failed"
