@@ -1,35 +1,42 @@
-name: Hugging Face Control
+name: Hugging Face Sync and Control
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
-        description: "Space control action"
+        description: "Action to run"
         required: true
-        default: "factory-rebuild"
+        default: "sync-and-rebuild"
         type: choice
         options:
+          - sync-and-rebuild
           - restart
           - factory-rebuild
           - status
-      space_id:
-        description: "Hugging Face Space ID, for example username/space-name. Leave blank to use HF_SPACE_ID secret."
-        required: false
-        type: string
+
+concurrency:
+  group: hugging-face-space
+  cancel-in-progress: true
 
 jobs:
   control-space:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Install Hugging Face Hub client
         run: python -m pip install --upgrade huggingface_hub
 
-      - name: Control Space
+      - name: Sync and control Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
-          ACTION: ${{ inputs.action }}
-          INPUT_SPACE_ID: ${{ inputs.space_id }}
+          HF_SPACE_ID: OSOCONSULT/getem
+          REQUESTED_ACTION: ${{ github.event_name == 'push' && 'sync-and-rebuild' || inputs.action }}
         run: |
           python - <<'PY'
           import os
@@ -37,33 +44,48 @@ jobs:
           from huggingface_hub import HfApi, restart_space, get_space_runtime, wait_for_space
 
           token = os.environ.get("HF_TOKEN")
-          repo_id = os.environ.get("INPUT_SPACE_ID") or os.environ.get("HF_SPACE_ID")
-          action = os.environ.get("ACTION", "factory-rebuild")
+          repo_id = os.environ.get("HF_SPACE_ID", "OSOCONSULT/getem")
+          action = os.environ.get("REQUESTED_ACTION") or "sync-and-rebuild"
 
           if not token:
-              raise SystemExit("Missing GitHub secret HF_TOKEN")
-          if not repo_id:
-              raise SystemExit("Missing HF_SPACE_ID secret or workflow input space_id")
+              raise SystemExit("Missing GitHub Actions secret HF_TOKEN")
 
           api = HfApi(token=token)
           print(f"Target Space: {repo_id}")
           print(f"Action: {action}")
 
           if action == "status":
-              runtime = get_space_runtime(repo_id, token=token)
-              print(runtime)
+              print(get_space_runtime(repo_id, token=token))
               sys.exit(0)
 
-          if action == "restart":
-              runtime = restart_space(repo_id, token=token, factory_reboot=False)
-              print("Restart triggered:", runtime)
+          if action == "sync-and-rebuild":
+              print("Uploading GitHub repository contents to Hugging Face Space...")
+              api.upload_folder(
+                  repo_id=repo_id,
+                  repo_type="space",
+                  folder_path=".",
+                  commit_message="Sync from ARCHITECTARIEL/cupid",
+                  ignore_patterns=[
+                      ".git/**",
+                      ".github/**",
+                      "node_modules/**",
+                      "dist/**",
+                      ".env",
+                      ".env.*",
+                  ],
+              )
+              runtime = restart_space(repo_id, token=token, factory_reboot=True)
+              print("Factory rebuild triggered:", runtime)
           elif action == "factory-rebuild":
               runtime = restart_space(repo_id, token=token, factory_reboot=True)
               print("Factory rebuild triggered:", runtime)
+          elif action == "restart":
+              runtime = restart_space(repo_id, token=token, factory_reboot=False)
+              print("Restart triggered:", runtime)
           else:
               raise SystemExit(f"Unknown action: {action}")
 
-          print("Waiting for Space to finish starting/building...")
+          print("Waiting for Space runtime...")
           runtime = wait_for_space(repo_id, token=token, timeout=900, poll_interval=10)
           print("Final runtime:", runtime)
           PY
