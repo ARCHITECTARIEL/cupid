@@ -1,0 +1,115 @@
+/* Global foreground/background isolation for Cupid V3 */
+html,body,#root{min-height:100%;background:#090712}
+#root{isolation:isolate}
+
+.splash,.game,.state,.redeem{position:relative!important;isolation:isolate!important;min-height:100svh!important;min-height:100dvh!important;overflow:hidden!important;background:#090712!important}
+
+.splash>.city,.game>.city,.state>.city,.redeem>.city{
+  position:absolute!important;
+  inset:0!important;
+  z-index:0!important;
+  pointer-events:none!important;
+}
+
+.splash>.city *,.game>.city *,.state>.city *,.redeem>.city *{pointer-events:none!important}
+
+.splash>section,.state>section,.redeem>section,
+.game>header,.game>.arena,.game>footer,
+.splash>.sound,.splash>.admin-link,.game>.sound{
+  position:relative!important;
+  z-index:20!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+
+.game>.sound,.splash>.sound,.splash>.admin-link{
+  position:fixed!important;
+  z-index:100!important;
+}
+
+.game{display:grid!important;grid-template-rows:auto minmax(0,1fr) auto!important}
+.game>header{
+  display:flex!important;
+  justify-content:space-between!important;
+  align-items:center!important;
+  padding:calc(env(safe-area-inset-top) + 68px) 18px 10px!important;
+  color:#fff!important;
+}
+.game>header>div:first-child>b{display:block!important;font-size:42px!important;line-height:1!important;color:#fff!important}
+.game>header span{display:block!important;color:rgba(255,255,255,.78)!important;font-size:12px!important}
+.game .kicker{display:block!important;color:#ffd166!important;margin:0 0 5px!important}
+.game .timer{
+  display:grid!important;
+  place-items:center!important;
+  width:68px!important;
+  height:68px!important;
+  border-radius:50%!important;
+  background:rgba(8,5,15,.86)!important;
+  color:#fff!important;
+  border:1px solid rgba(255,255,255,.32)!important;
+  font-size:30px!important;
+  font-weight:900!important;
+  box-shadow:inset 0 0 30px rgba(255,95,183,.28)!important;
+}
+.game>.arena{
+  display:block!important;
+  min-height:0!important;
+  height:auto!important;
+  overflow:hidden!important;
+  pointer-events:auto!important;
+}
+.game .target{
+  position:absolute!important;
+  z-index:40!important;
+  display:grid!important;
+  place-items:center!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:76px!important;
+  height:76px!important;
+  min-width:76px!important;
+  min-height:76px!important;
+  padding:0!important;
+  border-radius:50%!important;
+  pointer-events:auto!important;
+  touch-action:manipulation!important;
+  background:radial-gradient(circle,#fff,#ff9dce 48%,#bd276e)!important;
+  border:2px solid rgba(255,255,255,.86)!important;
+  box-shadow:0 12px 34px rgba(0,0,0,.52),0 0 28px rgba(255,95,183,.65)!important;
+  color:#fff!important;
+}
+.game .target span{display:block!important;font-size:40px!important;line-height:1!important}
+.game .target.gold{background:radial-gradient(circle,#fffde0,#ffd166 50%,#b87500)!important}
+.game .target.letter{background:radial-gradient(circle,#fff,#beeaff 50%,#307fae)!important}
+.game .target.broken{background:radial-gradient(circle,#fff,#c89fff 50%,#71309b)!important}
+.game .target.bomb{background:radial-gradient(circle,#6c6074,#18111d 58%,#000)!important}
+.game .target.cupid{width:102px!important;height:102px!important}
+.game .target small{position:absolute!important;right:-5px!important;top:-5px!important;display:grid!important;place-items:center!important;width:28px!important;height:28px!important;border-radius:50%!important;background:#0d0812!important;color:#ffd166!important;font-weight:900!important}
+.game>footer{
+  display:grid!important;
+  grid-template-columns:1fr 1.4fr 1fr!important;
+  gap:8px!important;
+  align-items:center!important;
+  min-height:86px!important;
+  padding:12px 14px calc(12px + env(safe-area-inset-bottom))!important;
+  background:rgba(9,7,18,.94)!important;
+  color:#fff!important;
+  border-top:1px solid rgba(255,255,255,.18)!important;
+  text-align:center!important;
+  backdrop-filter:blur(18px)!important;
+  -webkit-backdrop-filter:blur(18px)!important;
+}
+.game>footer b,.game>footer span{display:block!important;visibility:visible!important;opacity:1!important;color:#fff!important}
+.game>footer span{font-size:12px!important;color:#ffd9ec!important}
+
+.state{display:grid!important;place-items:center!important;padding:90px 18px 30px!important}
+.state>section{width:min(100%,520px)!important;padding:28px 22px!important;border-radius:30px!important;background:rgba(15,9,25,.92)!important;border:1px solid rgba(255,255,255,.25)!important;color:#fff!important;text-align:center!important}
+.state h1,.state p,.state button,.state .confirmation{visibility:visible!important;opacity:1!important}
+
+@media(max-width:760px){
+  .game>header{padding-top:calc(env(safe-area-inset-top) + 62px)!important}
+  .game .target{width:70px!important;height:70px!important;min-width:70px!important;min-height:70px!important}
+  .game .target span{font-size:37px!important}
+  .game .target.cupid{width:94px!important;height:94px!important}
+  .game>footer{font-size:13px!important}
+}
