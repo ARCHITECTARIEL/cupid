@@ -3,99 +3,16 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const app = express();
-const PORT = process.env.PORT || 7860;
-const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '.data');
-const DATA_FILE = path.join(DATA_DIR, 'cupid-games.json');
-
-app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
-
-function cleanText(value, max = 240) { return String(value || '').slice(0, max).replace(/[<>]/g, ''); }
-function normalize(value) { return cleanText(value, 120).trim().toLowerCase().replace(/\s+/g, ' '); }
-function loadGames() {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return []; }
-}
-function saveGames(games) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(games, null, 2));
-}
-function cleanGame(input = {}) {
-  return {
-    code: cleanText(input.code, 32).toUpperCase(),
-    playerName: cleanText(input.playerName), partnerName: cleanText(input.partnerName),
-    dateName: cleanText(input.dateName || `${input.playerName || ''} + ${input.partnerName || ''}`),
-    identityKey: `${normalize(input.playerName)}::${normalize(input.partnerName)}`,
-    mode: cleanText(input.mode, 30), nights: Math.max(1, Math.min(3, Number(input.nights || 1))),
-    score: Number(input.score || 0), hits: Number(input.hits || 0), misses: Number(input.misses || 0),
-    bestCombo: Number(input.bestCombo || 0),
-    rewards: Array.isArray(input.rewards) ? input.rewards.slice(0, 120).map(r => ({
-      id: cleanText(r.id, 80), name: cleanText(r.name), customText: cleanText(r.customText, 240),
-      category: cleanText(r.category || r.tier, 80), tier: cleanText(r.tier, 80), emoji: cleanText(r.emoji, 20),
-      points: Number(r.points || r.cost || 0), night: Math.max(0, Number(r.night || 0)), duration: cleanText(r.duration, 80)
-    })) : [],
-    dna: {
-      playsBefore: Number(input.dna?.plays || 0),
-      picks: input.dna?.picks && typeof input.dna.picks === 'object' ? input.dna.picks : {},
-      categories: input.dna?.categories && typeof input.dna.categories === 'object' ? input.dna.categories : {},
-      custom: Array.isArray(input.dna?.custom) ? input.dna.custom.slice(0, 50).map(x => ({ id: cleanText(x.id,80), name: cleanText(x.name), category: cleanText(x.category,80), cost: Number(x.cost||0) })) : []
-    },
-    createdAt: cleanText(input.createdAt, 80) || new Date().toISOString()
-  };
-}
-function aggregateProfile(games) {
-  const picks = {}, categories = {};
-  games.forEach(g => (g.rewards || []).forEach(r => {
-    picks[r.name] = (picks[r.name] || 0) + 1;
-    categories[r.category || 'Other'] = (categories[r.category || 'Other'] || 0) + 1;
-  }));
-  const sortedPicks = Object.entries(picks).sort((a,b)=>b[1]-a[1]);
-  const sortedCategories = Object.entries(categories).sort((a,b)=>b[1]-a[1]);
-  return {
-    identityKey: games[0]?.identityKey, playerName: games[0]?.playerName, partnerName: games[0]?.partnerName,
-    plays: games.length, totalPoints: games.reduce((n,g)=>n+g.score,0),
-    averagePoints: games.length ? Math.round(games.reduce((n,g)=>n+g.score,0)/games.length) : 0,
-    favoritePick: sortedPicks[0]?.[0] || '', favoriteCategory: sortedCategories[0]?.[0] || '',
-    picks: sortedPicks.map(([name,count])=>({name,count})), categories: sortedCategories.map(([name,count])=>({name,count})),
-    games: games.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))
-  };
-}
-
-app.get('/health', (_req,res)=>res.json({ok:true}));
-app.post('/api/save-game', (req,res) => {
-  const game = cleanGame(req.body);
-  if (!game.code || !game.playerName || !game.partnerName) return res.status(400).json({error:'Missing names or code'});
-  const games = loadGames();
-  const index = games.findIndex(g=>g.code===game.code);
-  if (index >= 0) games[index] = game; else games.unshift(game);
-  saveGames(games.slice(0,5000));
-  res.json({ok:true,code:game.code});
-});
-app.get('/api/redeem', (req,res) => {
-  const code = cleanText(req.query.code,32).toUpperCase();
-  const game = loadGames().find(g=>g.code===code);
-  if (!game) return res.status(404).json({error:'Reward code not found'});
-  const { dna, identityKey, ...publicGame } = game;
-  res.json(publicGame);
-});
-app.get('/api/dashboard', (req,res) => {
-  if (process.env.ADMIN_PIN && req.headers['x-admin-pin'] !== process.env.ADMIN_PIN) return res.status(401).json({error:'Locked'});
-  const query = normalize(req.query.q || '');
-  let games = loadGames();
-  if (query) games = games.filter(g => [g.code,g.playerName,g.partnerName,g.dateName].some(v=>normalize(v).includes(query)));
-  const grouped = new Map();
-  loadGames().forEach(g=>{ const list=grouped.get(g.identityKey)||[]; list.push(g); grouped.set(g.identityKey,list); });
-  let profiles = [...grouped.values()].map(aggregateProfile);
-  if (query) profiles = profiles.filter(p => [p.playerName,p.partnerName,p.identityKey,...p.games.map(g=>g.code)].some(v=>normalize(v).includes(query)));
-  const totalRewards = games.reduce((n,g)=>n+(g.rewards?.length||0),0);
-  const averageScore = games.length ? Math.round(games.reduce((n,g)=>n+g.score,0)/games.length) : 0;
-  const counts={}; games.flatMap(g=>g.rewards||[]).forEach(r=>counts[r.name]=(counts[r.name]||0)+1);
-  const topReward=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0]||'';
-  res.json({games,profiles,totalRewards,averageScore,topReward});
-});
-
-app.use(express.static(path.join(__dirname,'dist'),{extensions:['html']}));
-app.use((_req,res)=>res.sendFile(path.join(__dirname,'dist','index.html')));
-app.listen(PORT,'0.0.0.0',()=>console.log(`Cupid game running on ${PORT}; data: ${DATA_FILE}`));
+const __filename=fileURLToPath(import.meta.url);const __dirname=path.dirname(__filename);const app=express();const PORT=process.env.PORT||7860;
+const DATA_DIR=fs.existsSync('/data')?'/data':path.join(__dirname,'.data');const DATA_FILE=path.join(DATA_DIR,'cupid-games.json');
+app.disable('x-powered-by');app.use(express.json({limit:'1mb'}));
+const clean=(v,m=240)=>String(v||'').slice(0,m).replace(/[<>]/g,'');const norm=v=>clean(v,120).trim().toLowerCase().replace(/\s+/g,' ');
+function load(){try{return JSON.parse(fs.readFileSync(DATA_FILE,'utf8'))}catch{return[]}}function save(g){fs.mkdirSync(DATA_DIR,{recursive:true});fs.writeFileSync(DATA_FILE,JSON.stringify(g,null,2))}
+function cleanGame(i={}){return{code:clean(i.code,32).toUpperCase(),playerName:clean(i.playerName),partnerName:clean(i.partnerName),dateName:clean(i.dateName||`${i.playerName||''} + ${i.partnerName||''}`),identityKey:`${norm(i.playerName)}::${norm(i.partnerName)}`,mode:clean(i.mode,30),nights:Math.max(1,Math.min(3,Number(i.nights||1))),score:Number(i.score||0),hits:Number(i.hits||0),bestCombo:Number(i.bestCombo||i.best||0),unlocks:Array.isArray(i.unlocks)?i.unlocks.map(x=>clean(x,80)).slice(0,30):[],rewards:Array.isArray(i.rewards)?i.rewards.slice(0,150).map(r=>({id:clean(r.id,80),name:clean(r.name),notes:clean(r.notes),category:clean(r.category||r.tier,80),emoji:clean(r.emoji,20),points:Number(r.points||r.cost||0),night:Math.max(0,Number(r.night||0)),duration:clean(r.duration,80),traits:r.traits&&typeof r.traits==='object'?r.traits:{}})):[],feedback:i.feedback&&typeof i.feedback==='object'?{completed:Boolean(i.feedback.completed),rating:Math.max(0,Math.min(5,Number(i.feedback.rating||0))),repeat:Boolean(i.feedback.repeat),notes:clean(i.feedback.notes),updatedAt:clean(i.feedback.updatedAt,80)}:null,createdAt:clean(i.createdAt,80)||new Date().toISOString()}}
+function profile(gs){const picks={},cats={},traits={},ratings=[];gs.forEach(g=>{if(g.feedback?.rating)ratings.push(g.feedback.rating);(g.rewards||[]).forEach(r=>{picks[r.name]=(picks[r.name]||0)+1;cats[r.category||'Other']=(cats[r.category||'Other']||0)+1;Object.entries(r.traits||{}).forEach(([k,v])=>traits[k]=(traits[k]||0)+Number(v||0))})});const sp=Object.entries(picks).sort((a,b)=>b[1]-a[1]),sc=Object.entries(cats).sort((a,b)=>b[1]-a[1]);return{identityKey:gs[0]?.identityKey,playerName:gs[0]?.playerName,partnerName:gs[0]?.partnerName,plays:gs.length,totalPoints:gs.reduce((n,g)=>n+g.score,0),averagePoints:gs.length?Math.round(gs.reduce((n,g)=>n+g.score,0)/gs.length):0,favoritePick:sp[0]?.[0]||'',favoriteCategory:sc[0]?.[0]||'',averageRating:ratings.length?(ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1):'',completedDates:gs.filter(g=>g.feedback?.completed).length,picks:sp.map(([name,count])=>({name,count})),categories:sc.map(([name,count])=>({name,count})),traits:Object.entries(traits).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value})),games:gs.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))}}
+app.get('/health',(_q,r)=>r.json({ok:true}));
+app.post('/api/save-game',(q,r)=>{const game=cleanGame(q.body);if(!game.code||!game.playerName||!game.partnerName)return r.status(400).json({error:'Missing names or code'});const gs=load(),ix=gs.findIndex(x=>x.code===game.code);if(ix>=0)gs[ix]=game;else gs.unshift(game);save(gs.slice(0,5000));r.json({ok:true,code:game.code})});
+app.post('/api/feedback',(q,r)=>{const code=clean(q.body.code,32).toUpperCase(),gs=load(),ix=gs.findIndex(g=>g.code===code);if(ix<0)return r.status(404).json({error:'Date not found'});gs[ix].feedback={completed:Boolean(q.body.completed),rating:Math.max(0,Math.min(5,Number(q.body.rating||0))),repeat:Boolean(q.body.repeat),notes:clean(q.body.notes),updatedAt:new Date().toISOString()};save(gs);r.json({ok:true})});
+app.get('/api/redeem',(q,r)=>{const g=load().find(x=>x.code===clean(q.query.code,32).toUpperCase());if(!g)return r.status(404).json({error:'Reward code not found'});const{identityKey,...pub}=g;r.json(pub)});
+app.get('/api/dashboard',(q,r)=>{if(process.env.ADMIN_PIN&&q.headers['x-admin-pin']!==process.env.ADMIN_PIN)return r.status(401).json({error:'Locked'});const query=norm(q.query.q||''),all=load();let games=query?all.filter(g=>[g.code,g.playerName,g.partnerName,g.dateName].some(v=>norm(v).includes(query))):all;const grouped=new Map();all.forEach(g=>{const a=grouped.get(g.identityKey)||[];a.push(g);grouped.set(g.identityKey,a)});let profiles=[...grouped.values()].map(profile);if(query)profiles=profiles.filter(p=>[p.playerName,p.partnerName,p.identityKey,...p.games.map(g=>g.code)].some(v=>norm(v).includes(query)));const counts={};games.flatMap(g=>g.rewards||[]).forEach(x=>counts[x.name]=(counts[x.name]||0)+1);r.json({games,profiles,averageScore:games.length?Math.round(games.reduce((n,g)=>n+g.score,0)/games.length):0,topReward:Object.entries(counts).sort((a,b)=>b[1]-a[1])[0]?.[0]||'',completedDates:games.filter(g=>g.feedback?.completed).length})});
+app.use(express.static(path.join(__dirname,'dist'),{extensions:['html']}));app.use((_q,r)=>r.sendFile(path.join(__dirname,'dist','index.html')));app.listen(PORT,'0.0.0.0',()=>console.log(`Cupid running on ${PORT}`));
