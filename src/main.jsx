@@ -7,5 +7,6 @@ import './effects.css';
 import './v2.css';
 import './cupid-v3.css';
 import './mobile-setup-fix.css';
+import './global-visibility-fix.css';
 
 createRoot(document.getElementById('root')).render(<App />);
