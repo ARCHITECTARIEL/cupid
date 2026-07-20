@@ -6,5 +6,6 @@ import './builder-v4.css';
 import './effects.css';
 import './v2.css';
 import './cupid-v3.css';
+import './mobile-setup-fix.css';
 
 createRoot(document.getElementById('root')).render(<App />);
