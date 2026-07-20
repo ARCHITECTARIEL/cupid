@@ -3,6 +3,8 @@ name: Hugging Face Sync and Control
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - deployment-status.json
   workflow_dispatch:
     inputs:
       action:
@@ -24,7 +26,7 @@ jobs:
   control-space:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -33,59 +35,94 @@ jobs:
         run: python -m pip install --upgrade huggingface_hub
 
       - name: Sync and control Space
+        id: deploy
+        continue-on-error: true
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_SPACE_ID: OSOCONSULT/getem
           REQUESTED_ACTION: ${{ github.event_name == 'push' && 'sync-and-rebuild' || inputs.action }}
         run: |
           python - <<'PY'
+          import json
           import os
-          import sys
+          import traceback
+          from datetime import datetime, timezone
           from huggingface_hub import HfApi, restart_space, get_space_runtime, wait_for_space
 
           token = os.environ.get("HF_TOKEN")
           repo_id = os.environ.get("HF_SPACE_ID", "OSOCONSULT/getem")
           action = os.environ.get("REQUESTED_ACTION") or "sync-and-rebuild"
+          result = {
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "space_id": repo_id,
+              "action": action,
+              "status": "started",
+              "github_sha": os.environ.get("GITHUB_SHA"),
+          }
 
-          if not token:
-              raise SystemExit("Missing GitHub Actions secret HF_TOKEN")
+          try:
+              if not token:
+                  raise RuntimeError("Missing GitHub Actions secret HF_TOKEN")
 
-          api = HfApi(token=token)
-          print(f"Target Space: {repo_id}")
-          print(f"Action: {action}")
+              api = HfApi(token=token)
+              identity = api.whoami()
+              result["authenticated_as"] = identity.get("name") or identity.get("fullname") or "unknown"
 
-          if action == "status":
-              print(get_space_runtime(repo_id, token=token))
-              sys.exit(0)
+              if action == "status":
+                  runtime = get_space_runtime(repo_id, token=token)
+                  result["status"] = "checked"
+                  result["runtime_stage"] = runtime.stage
+                  result["runtime"] = str(runtime)
+              else:
+                  if action == "sync-and-rebuild":
+                      commit = api.upload_folder(
+                          repo_id=repo_id,
+                          repo_type="space",
+                          folder_path=".",
+                          commit_message="Sync from ARCHITECTARIEL/cupid",
+                          ignore_patterns=[
+                              ".git/**",
+                              ".github/**",
+                              "node_modules/**",
+                              "dist/**",
+                              ".env",
+                              ".env.*",
+                              "deployment-status.json",
+                          ],
+                      )
+                      result["space_commit"] = getattr(commit, "oid", None) or getattr(commit, "commit_url", None) or str(commit)
 
-          if action == "sync-and-rebuild":
-              print("Uploading GitHub repository contents to Hugging Face Space...")
-              api.upload_folder(
-                  repo_id=repo_id,
-                  repo_type="space",
-                  folder_path=".",
-                  commit_message="Sync from ARCHITECTARIEL/cupid",
-                  ignore_patterns=[
-                      ".git/**",
-                      ".github/**",
-                      "node_modules/**",
-                      "dist/**",
-                      ".env",
-                      ".env.*",
-                  ],
-              )
-              runtime = restart_space(repo_id, token=token, factory_reboot=True)
-              print("Factory rebuild triggered:", runtime)
-          elif action == "factory-rebuild":
-              runtime = restart_space(repo_id, token=token, factory_reboot=True)
-              print("Factory rebuild triggered:", runtime)
-          elif action == "restart":
-              runtime = restart_space(repo_id, token=token, factory_reboot=False)
-              print("Restart triggered:", runtime)
-          else:
-              raise SystemExit(f"Unknown action: {action}")
+                  factory = action in {"sync-and-rebuild", "factory-rebuild"}
+                  runtime = restart_space(repo_id, token=token, factory_reboot=factory)
+                  result["restart_stage"] = runtime.stage
+                  final_runtime = wait_for_space(repo_id, token=token, timeout=900, poll_interval=10)
+                  result["runtime_stage"] = final_runtime.stage
+                  result["runtime"] = str(final_runtime)
+                  result["status"] = "success" if final_runtime.stage == "RUNNING" else "completed_with_error"
 
-          print("Waiting for Space runtime...")
-          runtime = wait_for_space(repo_id, token=token, timeout=900, poll_interval=10)
-          print("Final runtime:", runtime)
+          except Exception as exc:
+              result["status"] = "failed"
+              result["error_type"] = type(exc).__name__
+              result["error"] = str(exc)
+              result["traceback"] = traceback.format_exc()[-6000:]
+
+          with open("deployment-status.json", "w", encoding="utf-8") as handle:
+              json.dump(result, handle, indent=2)
+
+          print(json.dumps(result, indent=2))
+          if result["status"] == "failed":
+              raise SystemExit(1)
           PY
+
+      - name: Commit deployment status
+        if: always()
+        run: |
+          git config user.name "cupid-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add deployment-status.json
+          git diff --cached --quiet || git commit -m "Record Hugging Face deployment status [skip ci]"
+          git push
+
+      - name: Fail workflow when deployment failed
+        if: steps.deploy.outcome == 'failure'
+        run: exit 1
