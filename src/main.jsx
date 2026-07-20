@@ -4,5 +4,6 @@ import App from './App.jsx';
 import './styles.css';
 import './builder-v4.css';
 import './effects.css';
+import './v2.css';
 
 createRoot(document.getElementById('root')).render(<App />);
