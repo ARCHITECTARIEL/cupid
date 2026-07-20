@@ -5,7 +5,7 @@ ENV NODE_ENV=production
 ENV PORT=7860
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git tini \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
@@ -15,4 +15,5 @@ COPY . .
 RUN npm run build
 
 EXPOSE 7860
-CMD ["npm", "start"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "server.js"]
