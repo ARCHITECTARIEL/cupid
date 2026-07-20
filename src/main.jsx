@@ -1,13 +1,6 @@
 import React from 'react';
-import { createRoot } from 'react-dom/client';
+import {createRoot} from 'react-dom/client';
 import App from './App.jsx';
-import './styles.css';
-import './builder-v4.css';
-import './effects.css';
-import './v2.css';
-import './cupid-v3.css';
-import './mobile-setup-fix.css';
-import './global-visibility-fix.css';
-import './mutual-reviews.css';
+import './cupid-v5.css';
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<App/>);
