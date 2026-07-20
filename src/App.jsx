@@ -1,239 +1,46 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-const rewards = {
-  common: { label: 'Sweet', emoji: '❤️', points: 80, items: ['Coffee Date','Ice Cream','Walk the Pier','Visit Vinoy Park','Sunset Walk','Browse Local Shops','Bookstore Date'] },
-  rare: { label: 'Romantic', emoji: '💙', points: 150, items: ['Mural Tour','Dali Museum','Chihuly Collection','Live Music','Wine Bar','Dessert Crawl','Rooftop Cocktails'] },
-  epic: { label: 'Chemistry', emoji: '💜', points: 250, items: ['Massage','First Base','Second Base','Third Base','Home Run','Your FANTASY','Cook Dinner Together','Dance in the Living Room','Movie Night','Candlelit Dessert','Watch the Sunrise','No Phones for One Hour'] },
-  legendary: { label: 'Legendary', emoji: '💛', points: 500, items: ['Golden Arrow','Choose Any Reward','Unlock Three Cards','Double Reward','Weekend Jackpot'] }
-};
-
-const connectionCards = [
-  "What's your biggest green flag?",
-  "What's your love language?",
-  "What's your ideal Saturday together?",
-  "What makes you feel appreciated?",
-  "Where would you travel together tomorrow?",
-  "What does a perfect morning together look like?",
-  "What's something you've always wanted to try on a date?"
+const NIGHT_COST = 1200;
+const stages = [
+  { name:'Arrow Alley', duration:20, icon:'🏹', help:'Hit hearts. Avoid black hearts.' },
+  { name:'Broken Hearts', duration:20, icon:'💔', help:'Repair broken hearts with two hits.' },
+  { name:'Love Letters', duration:20, icon:'💌', help:'Collect letters and golden hearts.' },
+  { name:'Cupid Escape', duration:22, icon:'💘', help:'Stop Cupid before he gets away.' }
 ];
+const catalog = [
+  ['coffee','Coffee Date','Food',120,'☕',2,2,1,2,'45 min'],['icecream','Ice Cream','Food',140,'🍦',2,3,1,2,'45 min'],['picnic','Waterfront Picnic','Food',260,'🧺',2,4,1,3,'90 min'],['dinner','Dinner Downtown','Food',360,'🍽️',2,4,2,3,'2 hrs'],['cocktails','Rooftop Cocktails','Food',280,'🍸',2,4,3,2,'90 min'],
+  ['dali','Dali Museum','Adventure',420,'🎨',5,3,1,3,'2 hrs'],['chihuly','Chihuly Collection','Adventure',380,'✨',4,3,1,3,'90 min'],['murals','St. Pete Mural Tour','Adventure',260,'🖼️',4,3,1,3,'90 min'],['pier','St. Pete Pier Walk','Adventure',180,'🌊',3,4,1,3,'60 min'],['kayak','Sunset Kayak','Adventure',480,'🛶',5,4,2,2,'2 hrs'],['minigolf','Mini Golf','Adventure',240,'⛳',4,2,1,3,'90 min'],
+  ['sunset','Sunset Walk','Romance',180,'🌅',2,5,2,3,'60 min'],['dance','Slow Dance','Romance',220,'💃',1,5,3,3,'30 min'],['massage','Massage','Romance',340,'💆',1,5,4,2,'45 min'],['movie','Movie Night','Romance',240,'🎬',1,4,2,2,'2 hrs'],['sunrise','Watch the Sunrise','Romance',300,'🌄',3,5,3,3,'90 min'],['nophones','No Phones for One Hour','Connection',180,'📵',1,4,2,5,'60 min'],['loveletter','Write Love Letters','Connection',220,'💌',1,5,2,5,'45 min'],
+  ['first','First Base','Chemistry',250,'😘',1,3,3,2,'Your pace'],['second','Second Base','Chemistry',420,'💋',1,4,4,2,'Your pace'],['third','Third Base','Chemistry',620,'🔥',1,4,5,2,'Your pace'],['homerun','Home Run','Chemistry',900,'❤️‍🔥',1,5,5,3,'Your pace'],['fantasy','Your Fantasy','Chemistry',1000,'🌶️',2,5,5,4,'Your pace']
+].map(([id,name,category,cost,emoji,adventure,romance,chemistry,connection,duration])=>({id,name,category,cost,emoji,adventure,romance,chemistry,connection,duration}));
+const questions = ["What's your biggest green flag?","What makes you feel appreciated?","What would make tonight unforgettable?","What's something playful you've always wanted to try?","What does a perfect morning together look like?"];
+const targetMeta = { heart:['💗',90],gold:['💛',180],letter:['💌',130],broken:['💔',150],bomb:['🖤',-120],cupid:['💘',260] };
 
-const stageData = [
-  { name: 'First Spark', subtitle: 'Warm up your aim', duration: 22, speed: 1 },
-  { name: 'Chemistry', subtitle: 'Keep the streak alive', duration: 24, speed: 1.35 },
-  { name: 'The Big Date', subtitle: 'Connect the final hearts', duration: 18, speed: 1.7 }
-];
+function makeCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from({length:7},()=>a[Math.floor(Math.random()*a.length)]).join('');}
+function newTarget(stage,id){const r=Math.random();let type=stage===3&&r>.6?'cupid':stage===2&&r>.48?'letter':stage===1&&r>.42?'broken':'heart';if(r>.9)type='bomb';else if(r>.82)type='gold';return{id,type,x:5+Math.random()*82,y:10+Math.random()*67,hp:type==='broken'?2:1,dx:(Math.random()>.5?1:-1)*(20+Math.random()*45),dy:(Math.random()>.5?1:-1)*(12+Math.random()*28)};}
+function loadDNA(){try{return JSON.parse(localStorage.getItem('cupid-date-dna'))||{plays:0,picks:{},categories:{},custom:[]};}catch{return{plays:0,picks:{},categories:{},custom:[]};}}
+function saveDNA(dna){localStorage.setItem('cupid-date-dna',JSON.stringify(dna));}
+function dnaTop(dna){const picks=Object.entries(dna.picks||{}).sort((a,b)=>b[1]-a[1]);const cats=Object.entries(dna.categories||{}).sort((a,b)=>b[1]-a[1]);return{favorite:picks[0]?.[0],category:cats[0]?.[0]};}
 
-const targetTypes = {
-  heart: { emoji: '💗', className: 'heart', points: 80 },
-  golden: { emoji: '💛', className: 'golden', points: 220 },
-  clock: { emoji: '⏰', className: 'clock', points: 60 },
-  broken: { emoji: '💔', className: 'broken', points: 140 },
-  bomb: { emoji: '🖤', className: 'bomb', points: -120 }
-};
+function Dashboard(){const[pin,setPin]=useState('');const[data,setData]=useState(null);const[err,setErr]=useState('');async function load(){setErr('');try{const r=await fetch('/api/dashboard',{headers:{'x-admin-pin':pin}});if(!r.ok)throw 0;setData(await r.json());}catch{setErr('Locked or no data yet.')}}return <main className="page"><section className="panel hero"><p className="eyebrow">Private Admin</p><h1>Cupid Dashboard</h1><div className="row"><input type="password" value={pin} onChange={e=>setPin(e.target.value)} placeholder="Admin PIN"/><button onClick={load}>Unlock</button></div>{err&&<p>{err}</p>}</section>{data&&<section className="panel wide"><h2>Saved dates</h2><div className="metrics"><b>{data.games.length}<span>Games</span></b><b>{data.totalRewards}<span>Activities</span></b><b>{data.averageScore}<span>Avg Points</span></b><b>{data.topReward||'—'}<span>Top Pick</span></b></div>{data.games.map(g=><div className="result" key={g.code}><b>{g.playerName} + {g.partnerName}</b><span>{g.code} · {g.score} pts</span><small>{(g.rewards||[]).map(x=>x.customText||x.name).join(' → ')}</small></div>)}</section>}</main>}
+function Redeem(){const code=location.pathname.split('/').pop();const[game,setGame]=useState(null);const[err,setErr]=useState('');useEffect(()=>{fetch('/api/redeem?code='+encodeURIComponent(code)).then(r=>r.ok?r.json():Promise.reject()).then(setGame).catch(()=>setErr('Date code not found.'))},[code]);return <main className="page"><section className="panel wide"><p className="eyebrow">Your Cupid itinerary</p>{err&&<h1>{err}</h1>}{game&&<><h1>{game.playerName} & {game.partnerName}</h1><p>Code <b>{game.code}</b> · {game.score} Love Points</p><div className="itinerary">{(game.rewards||[]).map((x,i)=><article key={x.id||i}><span>{i+1}</span><i>{x.emoji}</i><div><b>{x.customText||x.name}</b><small>{x.category||x.tier} · {x.duration||''}</small></div><em>{x.points} pts</em></article>)}</div><p className="fine">This is a playful suggested itinerary. Intimate activities always require mutual enthusiasm, consent, and comfort.</p></>}</section></main>}
 
-function makeCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 7 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-}
-
-function randomTarget(stage, id) {
-  const roll = Math.random();
-  let type = 'heart';
-  if (roll > .91) type = 'bomb';
-  else if (roll > .82) type = 'golden';
-  else if (roll > .72) type = 'clock';
-  else if (roll > .60) type = 'broken';
-  const size = type === 'golden' ? 76 : type === 'bomb' ? 68 : 62;
-  return {
-    id,
-    type,
-    x: 10 + Math.random() * 78,
-    y: 14 + Math.random() * 63,
-    size,
-    driftX: (Math.random() > .5 ? 1 : -1) * (10 + Math.random() * 28) * stageData[stage].speed,
-    driftY: (Math.random() > .5 ? 1 : -1) * (8 + Math.random() * 18),
-    hp: type === 'broken' ? 2 : 1
-  };
-}
-
-function drawReward(round, scoreBoost = 0) {
-  const roll = Math.random() + Math.min(.18, scoreBoost / 6000);
-  let rarity = 'common';
-  if (round % 10 === 0 || roll > .98) rarity = 'legendary';
-  else if (roll > .77) rarity = 'epic';
-  else if (roll > .43) rarity = 'rare';
-  const tier = rewards[rarity];
-  const name = tier.items[Math.floor(Math.random() * tier.items.length)];
-  return {
-    id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-    name,
-    rarity,
-    tier: tier.label,
-    emoji: tier.emoji,
-    points: tier.points,
-    createdAt: new Date().toISOString()
-  };
-}
-
-function Dashboard() {
-  const [pin, setPin] = useState('');
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState('');
-  async function load() {
-    setErr('');
-    try {
-      const res = await fetch('/api/dashboard', { headers: { 'x-admin-pin': pin } });
-      if (!res.ok) throw new Error();
-      setData(await res.json());
-    } catch { setErr('Locked or no data yet.'); }
-  }
-  function csv() {
-    if (!data?.games?.length) return;
-    const rows = [['date','player','partner','code','score','winnings'], ...data.games.map(g => [g.createdAt,g.playerName,g.partnerName,g.code,g.score,(g.rewards || []).map(r => r.customText || r.name).join('|')])];
-    const blob = new Blob([rows.map(r => r.map(v => `"${String(v ?? '').replaceAll('"','""')}"`).join(',')).join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'cupids-revenge-results.csv'; a.click(); URL.revokeObjectURL(url);
-  }
-  return <main className="page"><section className="panel"><p className="eyebrow">Private Admin</p><h1>Cupid Dashboard</h1><p>No public leaderboard. Only private game results.</p><div className="row"><input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="Admin PIN"/><button onClick={load}>Unlock</button></div>{err && <p className="error">{err}</p>}</section>{data && <section className="panel wide"><div className="top"><h2>Results</h2><button onClick={csv}>Export CSV</button></div><div className="metrics"><b>{data.games.length}<span>Games</span></b><b>{data.totalRewards}<span>Rewards</span></b><b>{data.averageScore}<span>Avg Score</span></b><b>{data.topReward || '—'}<span>Top Reward</span></b></div><table><thead><tr><th>Date</th><th>Players</th><th>Code</th><th>Score</th><th>Winnings</th></tr></thead><tbody>{data.games.map(g => <tr key={g.code}><td>{new Date(g.createdAt).toLocaleString()}</td><td>{g.playerName} / {g.partnerName}</td><td>{g.code}</td><td>{g.score}</td><td>{(g.rewards || []).map(r => r.customText || r.name).join(', ')}</td></tr>)}</tbody></table></section>}</main>;
-}
-
-function Redeem() {
-  const c = location.pathname.split('/').pop();
-  const [game, setGame] = useState(null);
-  const [err, setErr] = useState('');
-  useEffect(() => { fetch('/api/redeem?code=' + encodeURIComponent(c)).then(r => r.ok ? r.json() : Promise.reject()).then(setGame).catch(() => setErr('Reward code not found.')); }, [c]);
-  return <main className="page"><section className="panel wide"><p className="eyebrow">Reward Wallet</p>{err && <h1>{err}</h1>}{game && <><h1>{game.playerName} & {game.partnerName}</h1><p>Code <b>{game.code}</b> · Score {game.score}</p><div className="wallet">{game.rewards.map(r => <div className={'chip ' + r.rarity} key={r.id}><span>{r.emoji}</span><b>{r.customText || r.name}</b><em>{r.points}</em></div>)}</div><p className="fine">Cash these in together. Consent, comfort, and timing always win.</p></>}</section></main>;
-}
-
-function SunsetFinale({ game, names, onSave }) {
-  const level = game.score >= 2600 ? 'legendary' : game.score >= 1500 ? 'epic' : 'sweet';
-  return <main className={'sunset-finale ' + level}>
-    <div className="sun"/><div className="cloud cloud1"/><div className="cloud cloud2"/><div className="birds">⌁⌁</div>
-    <div className="water"><i/><i/><i/></div>
-    <div className="pier"><span/><span/><span/><span/></div>
-    <div className="couple"><div className="person one"><i/><b/></div><div className="joined-hands">♥</div><div className="person two"><i/><b/></div></div>
-    <div className="heart-particles">{Array.from({length: 14}, (_, i) => <i key={i}>♥</i>)}</div>
-    <section className="final-copy panel">
-      <p className="eyebrow">{level === 'legendary' ? 'Legendary Night' : 'Your story begins here'}</p>
-      <h1>{names.playerName} & {names.partnerName}</h1>
-      <p>You found the spark, survived Cupid, and earned a night worth remembering.</p>
-      <div className="final-stats"><b>{game.score}<span>Score</span></b><b>{game.bestCombo}x<span>Best Combo</span></b><b>{game.rewards.length}<span>Rewards</span></b></div>
-      <button onClick={onSave}>Reveal Our Reward Code</button>
-    </section>
-  </main>;
-}
-
-export default function App() {
-  if (location.pathname === '/dashboard') return <Dashboard/>;
-  if (location.pathname.startsWith('/redeem/')) return <Redeem/>;
-
-  const [screen, setScreen] = useState('intro');
-  const [form, setForm] = useState({ playerName: '', partnerName: '', mood: 'romantic' });
-  const [stage, setStage] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(stageData[0].duration);
-  const [targets, setTargets] = useState([]);
-  const [game, setGame] = useState({ hits: 0, misses: 0, score: 0, rewards: [], round: 1, combo: 0, bestCombo: 0 });
-  const [modal, setModal] = useState(null);
-  const [saved, setSaved] = useState(null);
-  const [fantasy, setFantasy] = useState('');
-  const idRef = useRef(1);
-  const ready = useMemo(() => form.playerName.trim() && form.partnerName.trim(), [form]);
-
-  useEffect(() => {
-    if (screen !== 'game') return;
-    setTargets(Array.from({ length: stage === 2 ? 5 : 4 }, () => randomTarget(stage, idRef.current++)));
-    const spawn = setInterval(() => {
-      setTargets(current => current.length >= 7 ? current : [...current, randomTarget(stage, idRef.current++)]);
-    }, Math.max(620, 1150 - stage * 190));
-    return () => clearInterval(spawn);
-  }, [screen, stage]);
-
-  useEffect(() => {
-    if (screen !== 'game') return;
-    const timer = setInterval(() => setTimeLeft(t => t - 1), 1000);
-    return () => clearInterval(timer);
-  }, [screen, stage]);
-
-  useEffect(() => {
-    if (screen !== 'game' || timeLeft > 0) return;
-    if (stage < stageData.length - 1) {
-      setStage(s => s + 1);
-      setTimeLeft(stageData[stage + 1].duration);
-      setTargets([]);
-      setGame(g => ({ ...g, combo: 0 }));
-    } else {
-      setScreen('finale');
-    }
-  }, [timeLeft, screen, stage]);
-
-  function startGame() {
-    setStage(0);
-    setTimeLeft(stageData[0].duration);
-    setScreen('game');
-  }
-
-  function hitTarget(target) {
-    const meta = targetTypes[target.type];
-    if (target.type === 'bomb') {
-      setTargets(t => t.filter(x => x.id !== target.id));
-      setGame(g => ({ ...g, misses: g.misses + 1, combo: 0, score: Math.max(0, g.score + meta.points), round: g.round + 1 }));
-      return;
-    }
-    if (target.type === 'broken' && target.hp > 1) {
-      setTargets(t => t.map(x => x.id === target.id ? { ...x, hp: 1, emoji: '❤️‍🩹' } : x));
-      setGame(g => ({ ...g, score: g.score + 35, combo: g.combo + 1 }));
-      return;
-    }
-    setTargets(t => t.filter(x => x.id !== target.id));
-    setGame(g => {
-      const combo = g.combo + 1;
-      const multiplier = 1 + Math.min(2, Math.floor(combo / 4) * .25);
-      const bonus = Math.round(meta.points * multiplier);
-      const reward = drawReward(g.round, g.score);
-      const nextRewards = target.type === 'golden' ? [...g.rewards, reward] : (g.round % 3 === 0 ? [...g.rewards, reward] : g.rewards);
-      if (target.type === 'golden' || g.round % 3 === 0) setModal({ reward, card: Math.random() > .45 ? connectionCards[Math.floor(Math.random() * connectionCards.length)] : '' });
-      return { ...g, hits: g.hits + 1, combo, bestCombo: Math.max(g.bestCombo, combo), score: g.score + bonus, rewards: nextRewards, round: g.round + 1 };
-    });
-    if (target.type === 'clock') setTimeLeft(t => t + 4);
-  }
-
-  function missArena(e) {
-    if (e.target !== e.currentTarget) return;
-    setGame(g => ({ ...g, misses: g.misses + 1, combo: 0, round: g.round + 1 }));
-  }
-
-  async function saveGame() {
-    const payload = { ...game, ...form, code: makeCode(), createdAt: new Date().toISOString() };
-    await fetch('/api/save-game', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }).catch(() => {});
-    setSaved(payload);
-  }
-
-  if (saved) return <main className="page"><section className="panel victory"><div className="logo">💘</div><p className="eyebrow">Weekend unlocked</p><h1>{saved.playerName} & {saved.partnerName}</h1><p>Your private reward code is ready.</p><b className="bigcode">{saved.code}</b><button onClick={() => location.href = '/redeem/' + saved.code}>Open Reward Wallet</button></section></main>;
-  if (screen === 'finale') return <SunsetFinale game={game} names={form} onSave={saveGame}/>;
-
-  return <main className={'app mood-' + form.mood}>
-    <div className="glow g1"/><div className="glow g2"/>
-    {screen === 'intro' ? <section className="panel hero">
-      <div className="logo">💘</div><p className="eyebrow">Cupid's Revenge · Chapter Two</p>
-      <h1>Aim for the spark. Earn the night.</h1>
-      <p>A three-stage romantic arcade game with moving hearts, streaks, surprises, and one final shot at the sunset.</p>
-      <div className="names"><input value={form.playerName} onChange={e => setForm({ ...form, playerName: e.target.value })} placeholder="Player One"/><input value={form.partnerName} onChange={e => setForm({ ...form, partnerName: e.target.value })} placeholder="Player Two"/></div>
-      <div className="moods">{['cute','romantic','adventurous','flirty'].map(m => <button key={m} className={form.mood === m ? 'active' : ''} onClick={() => setForm({ ...form, mood: m })}>{m}</button>)}</div>
-      <button disabled={!ready} onClick={startGame}>Start Our Adventure</button>
-      <p className="fine">Tap hearts. Avoid black hearts. Broken hearts need two hits. Clocks add time.</p>
-    </section> : <>
-      <header className="game-header"><div><p className="eyebrow">Stage {stage + 1} of 3</p><h2>{stageData[stage].name}</h2><span>{stageData[stage].subtitle}</span></div><div className="timer"><b>{timeLeft}</b><span>seconds</span></div></header>
-      <section className="game-layout">
-        <div className="arena-v2" onClick={missArena}>
-          <div className="moon"/><div className="cityline">▂▃▅▂▆▃▅▇▂▅▃</div><div className="waterline"/>
-          {targets.map(target => <button key={target.id} className={'target ' + targetTypes[target.type].className} style={{ left: target.x + '%', top: target.y + '%', width: target.size, height: target.size, '--dx': target.driftX + 'px', '--dy': target.driftY + 'px', '--speed': `${3.8 / stageData[stage].speed}s` }} onClick={e => { e.stopPropagation(); hitTarget(target); }}>{target.emoji || targetTypes[target.type].emoji}<span>{target.type === 'broken' && target.hp > 1 ? '2 hits' : target.type}</span></button>)}
-          <div className="crosshair">＋</div>
-          <div className="combo-burst" key={game.combo}>{game.combo >= 3 ? `${game.combo}x COMBO` : ''}</div>
-          <div className="legend"><span>💗 points</span><span>💛 reward</span><span>⏰ +4 sec</span><span>💔 2 hits</span><span>🖤 avoid</span></div>
-        </div>
-        <aside className="panel side v2"><div className="score-card"><span>Score</span><b>{game.score}</b></div><div className="stats-row"><div><b>{game.hits}</b><span>Hits</span></div><div><b>{game.misses}</b><span>Misses</span></div><div><b>{game.bestCombo}x</b><span>Best</span></div></div><div className="stage-track">{stageData.map((s, i) => <i key={s.name} className={i <= stage ? 'done' : ''}/>)}</div><h3>Weekend Wallet</h3><div className="wallet">{game.rewards.slice().reverse().map(r => <div className={'chip ' + r.rarity} key={r.id}><span>{r.emoji}</span><b>{r.customText || r.name}</b><em>{r.points}</em></div>)}</div></aside>
-      </section>
-    </>}
-    {modal && <div className="modal"><section className={'panel reward ' + modal.reward.rarity}><div className="badge">{modal.reward.emoji}</div><p className="eyebrow">{modal.reward.tier} unlocked</p><h2>{modal.reward.name}</h2><p>This card is now in your private weekend wallet.</p>{modal.reward.name === 'Your FANTASY' && <textarea value={fantasy} onChange={e => setFantasy(e.target.value)} placeholder="Write a playful, consensual idea you both agree sounds fun..."/>}{modal.card && <div className="connection"><b>Connection Card</b><span>{modal.card}</span></div>}<button onClick={() => { if (modal.reward.name === 'Your FANTASY' && fantasy.trim()) setGame(g => ({ ...g, rewards: g.rewards.map(r => r.id === modal.reward.id ? { ...r, customText: fantasy } : r) })); setFantasy(''); setModal(null); }}>Add to Weekend</button></section></div>}
-  </main>;
+export default function App(){
+ if(location.pathname==='/dashboard')return <Dashboard/>;if(location.pathname.startsWith('/redeem/'))return <Redeem/>;
+ const[screen,setScreen]=useState('setup');const[form,setForm]=useState({playerName:'',partnerName:'',mode:'surprise',nights:1,mood:'flirty'});const[stage,setStage]=useState(0);const[time,setTime]=useState(stages[0].duration);const[targets,setTargets]=useState([]);const[game,setGame]=useState({score:0,hits:0,misses:0,combo:0,bestCombo:0});const[selected,setSelected]=useState([]);const[custom,setCustom]=useState({name:'',cost:250,category:'Custom'});const[saved,setSaved]=useState(null);const[dna,setDna]=useState(loadDNA);const ids=useRef(1);const goal=form.nights*NIGHT_COST;const remaining=game.score-selected.reduce((n,x)=>n+x.cost,0);const profile=dnaTop(dna);const ready=form.playerName.trim()&&form.partnerName.trim();
+ const fullCatalog=useMemo(()=>[...catalog,...(dna.custom||[])],[dna]);
+ const recommended=useMemo(()=>fullCatalog.slice().sort((a,b)=>((dna.picks?.[b.id]||0)-(dna.picks?.[a.id]||0))||((dna.categories?.[b.category]||0)-(dna.categories?.[a.category]||0))),[fullCatalog,dna]);
+ useEffect(()=>{if(screen!=='game')return;setTargets(Array.from({length:5},()=>newTarget(stage,ids.current++)));const s=setInterval(()=>setTargets(t=>t.length>8?t:[...t,newTarget(stage,ids.current++)]),Math.max(520,930-stage*100));return()=>clearInterval(s)},[screen,stage]);
+ useEffect(()=>{if(screen!=='game')return;const t=setInterval(()=>setTime(v=>v-1),1000);return()=>clearInterval(t)},[screen,stage]);
+ useEffect(()=>{if(screen!=='game'||time>0)return;if(stage<stages.length-1){setStage(x=>x+1);setTime(stages[stage+1].duration);setTargets([]);}else setScreen(game.score>=goal?'builder':'lost')},[time,screen,stage,game.score,goal]);
+ function start(){setStage(0);setTime(stages[0].duration);setTargets([]);setGame({score:0,hits:0,misses:0,combo:0,bestCombo:0});setSelected([]);setScreen('game')}
+ function hit(t){const[emoji,base]=targetMeta[t.type];if(t.type==='bomb'){setTargets(x=>x.filter(y=>y.id!==t.id));setGame(g=>({...g,score:Math.max(0,g.score+base),misses:g.misses+1,combo:0}));return}if(t.type==='broken'&&t.hp>1){setTargets(x=>x.map(y=>y.id===t.id?{...y,hp:1}:y));setGame(g=>({...g,score:g.score+40,combo:g.combo+1}));return}setTargets(x=>x.filter(y=>y.id!==t.id));setGame(g=>{const combo=g.combo+1,m=1+Math.min(1.5,Math.floor(combo/4)*.25);return{...g,score:g.score+Math.round(base*m),hits:g.hits+1,combo,bestCombo:Math.max(g.bestCombo,combo)}})}
+ function toggle(a){if(selected.some(x=>x.id===a.id)){setSelected(x=>x.filter(y=>y.id!==a.id));return}if(a.cost>remaining)return;setSelected(x=>[...x,a])}
+ function addCustom(){const name=custom.name.trim();if(!name)return;const a={id:'custom-'+Date.now(),name,cost:Number(custom.cost)||250,points:Number(custom.cost)||250,category:'Custom',emoji:'✨',duration:'Your plan',adventure:3,romance:3,chemistry:3,connection:3};const next={...dna,custom:[...(dna.custom||[]),a]};setDna(next);saveDNA(next);setCustom({name:'',cost:250,category:'Custom'})}
+ async function finish(){const rewards=selected.map(a=>({...a,points:a.cost,rarity:a.category.toLowerCase(),tier:a.category,createdAt:new Date().toISOString()}));const payload={...game,...form,rewards,code:makeCode(),createdAt:new Date().toISOString()};const next={...dna,plays:(dna.plays||0)+1,picks:{...dna.picks},categories:{...dna.categories}};selected.forEach(a=>{next.picks[a.id]=(next.picks[a.id]||0)+1;next.categories[a.category]=(next.categories[a.category]||0)+1});saveDNA(next);setDna(next);await fetch('/api/save-game',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)}).catch(()=>{});setSaved(payload);setScreen('finale')}
+ if(saved&&screen==='finale')return <main className="finale"><div className="sun"/><div className="water"/><div className="pier"/><div className="walking-couple"><i/><b/><span>♥</span><b/><i/></div><div className="hearts">♥ ♥ ♥ ♥ ♥ ♥</div><section className="panel final-card"><p className="eyebrow">Your date was saved</p><h1>{saved.playerName} & {saved.partnerName}</h1><p>{saved.mode==='surprise'?'A surprise itinerary is waiting to be revealed.':'Your St. Pete adventure is ready.'}</p><b className="bigcode">{saved.code}</b><button onClick={()=>location.href='/redeem/'+saved.code}>Open Itinerary</button></section></main>;
+ if(screen==='lost')return <main className="page lost"><section className="panel hero"><div className="escaping">💘</div><p className="eyebrow">Cupid escaped</p><h1>Game Over</h1><p>You earned {game.score} of {goal} Love Points. No itinerary until you catch him.</p><button onClick={start}>Try Again</button><button className="ghost" onClick={()=>setScreen('setup')}>Change Nights</button></section></main>;
+ if(screen==='setup')return <main className="app"><div className="glow g1"/><div className="glow g2"/><section className="panel hero"><div className="logo">💘</div><p className="eyebrow">Cupid's Revenge · St. Petersburg</p><h1>Earn the Night. Build the Date.</h1><p>Choose your challenge, stop Cupid, and spend your Love Points on a complete St. Pete itinerary.</p><div className="names"><input value={form.playerName} onChange={e=>setForm({...form,playerName:e.target.value})} placeholder="Player name"/><input value={form.partnerName} onChange={e=>setForm({...form,partnerName:e.target.value})} placeholder="Who is the date for?"/></div><div className="choice"><b>Mode</b><div><button className={form.mode==='surprise'?'active':''} onClick={()=>setForm({...form,mode:'surprise'})}>🎁 Surprise</button><button className={form.mode==='couples'?'active':''} onClick={()=>setForm({...form,mode:'couples'})}>💕 Couples</button></div></div><div className="choice"><b>How many nights?</b><div>{[1,2,3].map(n=><button key={n} className={form.nights===n?'active':''} onClick={()=>setForm({...form,nights:n})}>{n} Night{n>1?'s':''}<small>{n*NIGHT_COST} pts</small></button>)}</div></div>{dna.plays>0&&<div className="dna"><b>🧬 Date DNA</b><span>{dna.plays} completed date{dna.plays===1?'':'s'}</span><p>{profile.category?`Cupid knows you lean ${profile.category.toLowerCase()}.`:"Cupid is still learning your style."}</p></div>}<button disabled={!ready} onClick={start}>Start the Chase</button></section></main>;
+ if(screen==='builder'){const spent=game.score-remaining;const nightBuckets=Array.from({length:form.nights},(_,n)=>selected.filter((_,i)=>i%form.nights===n));return <main className="page builder"><header><div><p className="eyebrow">Date Builder</p><h2>{game.score} Love Points earned</h2><span>{remaining} available · {spent} spent</span></div><button disabled={!selected.length} onClick={finish}>Save This Date</button></header><section className="builder-grid"><aside className="panel"><h3>Your {form.nights}-Night Plan</h3>{nightBuckets.map((items,i)=><div className="night" key={i}><b>Night {i+1}</b><small>{items.reduce((n,x)=>n+x.cost,0)} pts</small>{items.map(a=><span key={a.id}>{a.emoji} {a.name}</span>)}</div>)}<div className="dna"><b>🧬 Date DNA</b><p>{profile.category?`Recommendations favor ${profile.category}.`:"Your choices here train future recommendations."}</p></div><h3>Add your own</h3><input value={custom.name} onChange={e=>setCustom({...custom,name:e.target.value})} placeholder="Custom activity"/><div className="row"><input type="number" min="50" step="50" value={custom.cost} onChange={e=>setCustom({...custom,cost:e.target.value})}/><button onClick={addCustom}>Add</button></div></aside><section className="market"><div className="market-head"><h3>St. Pete Date Market</h3><p>Every card costs Love Points. Intimate rewards are always visible.</p></div><div className="cards">{recommended.map(a=>{const picked=selected.some(x=>x.id===a.id),locked=!picked&&a.cost>remaining;return <button className={'activity '+(picked?'picked ':'')+(locked?'locked':'')} key={a.id} onClick={()=>toggle(a)} disabled={locked}><span className="activity-emoji">{a.emoji}</span><div><b>{a.name}</b><small>{a.category} · {a.duration}</small><em>A{a.adventure} R{a.romance} C{a.chemistry} ♥{a.connection}</em></div><strong>{a.cost}</strong></button>})}</div></section></section></main>}
+ return <main className="page"><header><div><p className="eyebrow">{stages[stage].name}</p><h2>{stages[stage].icon} {stages[stage].help}</h2></div><div className="goal"><b>{game.score}</b><span>/ {goal} pts</span></div><div className="timer"><b>{time}</b><span>seconds</span></div></header><section className="game-grid"><div className="arena" onClick={e=>{if(e.target===e.currentTarget)setGame(g=>({...g,misses:g.misses+1,combo:0}))}}><div className="skyline">🌴 🌆 🌊</div>{targets.map(t=><button key={t.id} className={'target '+t.type} style={{left:t.x+'%',top:t.y+'%', '--dx':t.dx+'px','--dy':t.dy+'px'}} onClick={e=>{e.stopPropagation();hit(t)}}>{t.type==='broken'&&t.hp===1?'❤️‍🩹':targetMeta[t.type][0]}</button>)}{game.combo>2&&<div className="combo">{game.combo}x COMBO</div>}</div><aside className="panel game-side"><h3>Catch Cupid</h3><div className="progress"><i style={{width:Math.min(100,game.score/goal*100)+'%'}}/></div><div className="stats"><b>{game.hits}<span>Hits</span></b><b>{game.misses}<span>Misses</span></b><b>{game.bestCombo}x<span>Best Combo</span></b></div><div className="stage-list">{stages.map((s,i)=><span className={i===stage?'active':i<stage?'done':''} key={s.name}>{s.icon} {s.name}</span>)}</div><div className="question"><b>Icebreaker</b><p>{questions[(stage+game.hits)%questions.length]}</p></div><p className="fine">You must reach the full goal. If Cupid escapes, the date is lost and you try again.</p></aside></section></main>
 }
